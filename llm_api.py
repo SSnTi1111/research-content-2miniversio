@@ -1,62 +1,50 @@
 import openai
 import config
-import kernels # <--- [已更新] 导入 kernels
+import kernels 
 
-# 全局初始化一次客户端 (仅在非模拟模式下)
-client_dmxapi = None
-if not config.MOCK_LLM_CALLS:
-    if config.DMX_API_KEY == "YOUR_DMX_API_KEY_HERE" or not config.DMX_API_KEY:
-        raise ValueError("Please set your DMX_API_KEY in config.py")
-    
-    client_dmxapi = openai.OpenAI(
-        api_key=config.DMX_API_KEY,
-        base_url=config.DMX_API_BASE_URL
-    )
+# [!!! 已移除 !!!]
+# 全局客户端已被移除，因为不同 Agent 可能使用不同模型
 
-def call_llm(system_prompt, user_prompt):
+def call_llm(agent_name: str, system_prompt: str, user_prompt: str):
     """
     A simple wrapper for the LLM API call.
-    Includes mock logic for testing.
     (已更新为使用 dmxapi 并兼容 OpenAI 格式)
+    
+    [!!! 已更新 !!!]
+    - 接受 agent_name 作为参数
+    - 根据 agent_name 从 config.py 动态选择模型
     """
     if config.MOCK_LLM_CALLS:
+        # (模拟逻辑保持不变，以防您想切回测试)
         print("--- [MOCK LLM CALL] ---")
-        
-        # Planner 和 Tool 的模拟回复 (不变)
         if "Planner Agent" in system_prompt:
             return "OPTIMIZATION_GOAL: Implement 16x16 tiling using shared memory."
         if "Tool Agent" in system_prompt:
             return "METRICS: ['dram__bytes_read.sum', 'l1tex__t_bytes_read.sum', 'shared_load_transactions.sum', 'achieved_occupancy.avg', 'warp_execution_efficiency.pct']"
         if "Analysis Agent" in system_prompt:
-            return """
-            DETAILED_PLAN:
-            1. Define a preprocessor macro `BLOCK_SIZE` with value 16 (if not already defined).
-            2. Declare two shared memory arrays: `__shared__ float As[BLOCK_SIZE][BLOCK_SIZE];` and `__shared__ float Bs[BLOCK_SIZE][BLOCK_SIZE];`.
-            3. Initialize an accumulator register `float C_value = 0.0f;`.
-            4. Calculate the number of tiles: `int num_tiles = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;`.
-            5. Start a loop that iterates over the tiles (`for (int t = 0; t < num_tiles; ++t)`).
-            6. Inside the loop, load data from global A and B into As and Bs, handling boundary conditions (if `A_row < N && A_col < N`).
-            7. Call `__syncthreads();` after loading both tiles.
-            8. Perform the matrix multiplication for the tile, accumulating the result in `C_value`.
-            9. Call `__syncthreads();` after computation, before the next tile load.
-            10. After the tile loop, write the final `C_value` to global memory `C[row * N + col]`.
-            """
-        
-        # [!!! 已更新 !!!]
+            return "DETAILED_PLAN:\n1. ... (模拟计划) ..."
         if "Coder Agent" in system_prompt:
-            # 返回一个预先编写好的、完整的 C++/CUDA Tiled 源码
             return f"```cuda\n{kernels.TILED_CUDA_SOURCE}\n```"
-        
         return "Mocked response."
 
     # --- 真实的 API 调用 (使用 dmxapi 客户端) ---
-    global client_dmxapi
-    if not client_dmxapi:
-         raise ValueError("DMX API client is not initialized. Check config.")
+    
+    # [!!! 已更新 !!!] 解决问题 3
+    # 1. 根据 Agent 名称获取模型
+    model_name = config.AGENT_MODELS.get(agent_name)
+    if not model_name:
+        raise ValueError(f"在 config.py 的 AGENT_MODELS 中未找到 '{agent_name}' 的模型配置")
 
+    # 2. 动态创建客户端 (因为 client 绑定了 base_url)
     try:
+        client_dmxapi = openai.OpenAI(
+            api_key=config.DMX_API_KEY,
+            base_url=config.DMX_API_BASE_URL
+        )
+        
+        # 3. 使用动态获取的 model_name 进行调用
         response = client_dmxapi.chat.completions.create(
-            model=config.DMX_MODEL_NAME, 
+            model=model_name, # <--- 使用特定于 Agent 的模型
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -67,5 +55,5 @@ def call_llm(system_prompt, user_prompt):
         return response.choices[0].message.content
         
     except Exception as e:
-        print(f"Error calling DMX API: {e}")
+        print(f"Error calling DMX API for agent '{agent_name}' (model: {model_name}): {e}")
         return None

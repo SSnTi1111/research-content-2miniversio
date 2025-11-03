@@ -9,14 +9,29 @@ MATRIX_N = 2048
 ITERATION_ROUNDS = 5  # 可外部设置的迭代轮数
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+# --- [!!! 已更新 !!!] ---
+# 解决问题 3: 为不同 Agent 配置不同模型
+AGENT_MODELS = {
+    "planner": "gpt-5-mini",  # 规划 Agent，用一个较快、便宜的模型
+    "tool": "gpt-5-mini",       # 工具 Agent，用一个较快、便宜的模型
+    "analysis": "gpt-5",    # 分析 Agent，用一个更强的模型
+    "coder": "gpt-5",       # 编码 Agent，用一个最强的模型
+}
+# --- [!!! 已更新 !!!] ---
+
 # --- LLM Settings (dmxapi) ---
 DMX_API_KEY = "sk-EurbTIrCe7fqGs8LxhxS77d5wKb0LlmUlPHWUnYa59PTVY9P" # (使用您提供的key)
-DMX_MODEL_NAME = "gpt-5-mini" # (您在 config.py 中设置的模型)
 DMX_API_BASE_URL = "https://www.dmxapi.cn/v1"
 
 # --- 模拟开关 ---
-# !! 设置为 False 以启用真实的 LLM API 调用 !!
+# !! 根据您的要求，设置为 False 以启用真实的 LLM API 调用 !!
 MOCK_LLM_CALLS = False
+
+# --- [!!! 新增 !!!] ---
+# 解决问题 4: 历史记忆
+# 将优化历史保存到 JSON 文件中
+HISTORY_FILE = "optimization_history.json"
+# --- [!!! 新增 !!!] ---
 
 # --- Profiler Settings ---
 # (此列表现在仅作为后备，或用于 Tool Agent 的提示词示例)

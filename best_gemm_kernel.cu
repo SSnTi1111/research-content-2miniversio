@@ -2,8 +2,9 @@
 #include <cuda_runtime.h>
 
 #ifndef BLOCK_SIZE
-#define BLOCK_SIZE 16
+#define BLOCK_SIZE 32
 #endif
+static_assert(BLOCK_SIZE * BLOCK_SIZE <= 1024, "BLOCK_SIZE^2 must be <= 1024");
 
 // ------------------------------------------------------------------
 // KERNEL: gemm_kernel 
@@ -14,47 +15,54 @@ __global__ void gemm_kernel(
     float* __restrict__ C,
     int N
 ) {
-    // Tiled shared-memory GEMM with padding to reduce bank conflicts
-    __shared__ float As[BLOCK_SIZE][BLOCK_SIZE + 1];
-    __shared__ float Bs[BLOCK_SIZE][BLOCK_SIZE + 1];
+    // 2D block-tiled GEMM with shared memory
+    const int tx  = threadIdx.x;
+    const int ty  = threadIdx.y;
+    const int row = blockIdx.y * blockDim.y + ty;
+    const int col = blockIdx.x * blockDim.x + tx;
 
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
+    // Cache row*N to avoid repeated multiplications
+    const int rowN = row * N;
 
+    // Tile size (equal to BLOCK_SIZE)
+    const int TILE = BLOCK_SIZE;
+
+    // Shared-memory tiles
+    __shared__ float Asub[BLOCK_SIZE][BLOCK_SIZE];
+    __shared__ float Bsub[BLOCK_SIZE][BLOCK_SIZE];
+
+    // Per-thread accumulator
     float sum = 0.0f;
 
-    int numTiles = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;
+    // Number of tiles along K dimension
+    const int numTiles = (N + TILE - 1) / TILE;
 
+    // Loop over tiles
     for (int t = 0; t < numTiles; ++t) {
-        int tiled_col = t * BLOCK_SIZE + threadIdx.x; // for loading A
-        int tiled_row = t * BLOCK_SIZE + threadIdx.y; // for loading B
+        // Global indices to load
+        const int A_col = t * TILE + tx; // column in A for this tile
+        const int B_row = t * TILE + ty; // row in B for this tile
 
-        // Load A tile element (coalesced along threadIdx.x)
-        if (row < N && tiled_col < N) {
-            As[threadIdx.y][threadIdx.x] = A[row * N + tiled_col];
-        } else {
-            As[threadIdx.y][threadIdx.x] = 0.0f;
-        }
+        // Cooperative loads into shared memory with bounds checks.
+        // All threads participate so that __syncthreads is safe.
+        Asub[ty][tx] = (row < N && A_col < N) ? A[rowN + A_col] : 0.0f;
+        Bsub[ty][tx] = (B_row < N && col < N) ? B[B_row * N + col] : 0.0f;
 
-        // Load B tile element (coalesced along threadIdx.y access pattern)
-        if (tiled_row < N && col < N) {
-            Bs[threadIdx.y][threadIdx.x] = B[tiled_row * N + col];
-        } else {
-            Bs[threadIdx.y][threadIdx.x] = 0.0f;
-        }
-
+        // Ensure the entire tile is visible
         __syncthreads();
 
-        #pragma unroll
-        for (int k = 0; k < BLOCK_SIZE; ++k) {
-            sum += As[threadIdx.y][k] * Bs[k][threadIdx.x];
+        // Compute partial products for this tile
+        for (int k = 0; k < TILE; ++k) {
+            sum += Asub[ty][k] * Bsub[k][tx];
         }
 
+        // Ensure no thread overwrites shared tiles before others finish
         __syncthreads();
     }
 
+    // Write back result with bounds check
     if (row < N && col < N) {
-        C[row * N + col] = sum;
+        C[rowN + col] = sum;
     }
 }
 
