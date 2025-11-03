@@ -12,9 +12,9 @@ DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 # --- [!!! 已更新 !!!] ---
 # 解决问题 3: 为不同 Agent 配置不同模型
 AGENT_MODELS = {
-    "planner": "DeepSeek-V3.1-Fast",  # 规划 Agent，用一个较快、便宜的模型
-    "tool": "DeepSeek-V3.1-Fast",       # 工具 Agent，用一个较快、便宜的模型
-    "analysis": "DeepSeek-V3.1-Fast",    # 分析 Agent，用一个更强的模型
+    "planner": "deepseek-v3.2-exp-thinking",  # 规划 Agent，用一个较快、便宜的模型
+    "tool": "deepseek-v3.2-exp-thinking",       # 工具 Agent，用一个较快、便宜的模型
+    "analysis": "deepseek-v3.2-exp-thinking",    # 分析 Agent，用一个更强的模型
     "coder": "gpt-5",       # 编码 Agent，用一个最强的模型
 }
 # --- [!!! 已更新 !!!] ---
