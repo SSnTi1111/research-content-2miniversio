@@ -1,4 +1,3 @@
-
 #include <torch/extension.h>
 #include <cuda_runtime.h>
 
@@ -10,19 +9,51 @@
 // KERNEL: gemm_kernel 
 // ------------------------------------------------------------------
 __global__ void gemm_kernel(
-    const float* A,
-    const float* B,
-    float* C,
+    const float* __restrict__ A,
+    const float* __restrict__ B,
+    float* __restrict__ C,
     int N
 ) {
-    // 朴素的CUDA矩阵乘法 (GEMM) 内核
+    // Tiled shared-memory GEMM with padding to reduce bank conflicts
+    __shared__ float As[BLOCK_SIZE][BLOCK_SIZE + 1];
+    __shared__ float Bs[BLOCK_SIZE][BLOCK_SIZE + 1];
+
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
+
     float sum = 0.0f;
-    if (row < N && col < N) {
-        for (int k = 0; k < N; ++k) {
-            sum += A[row * N + k] * B[k * N + col];
+
+    int numTiles = (N + BLOCK_SIZE - 1) / BLOCK_SIZE;
+
+    for (int t = 0; t < numTiles; ++t) {
+        int tiled_col = t * BLOCK_SIZE + threadIdx.x; // for loading A
+        int tiled_row = t * BLOCK_SIZE + threadIdx.y; // for loading B
+
+        // Load A tile element (coalesced along threadIdx.x)
+        if (row < N && tiled_col < N) {
+            As[threadIdx.y][threadIdx.x] = A[row * N + tiled_col];
+        } else {
+            As[threadIdx.y][threadIdx.x] = 0.0f;
         }
+
+        // Load B tile element (coalesced along threadIdx.y access pattern)
+        if (tiled_row < N && col < N) {
+            Bs[threadIdx.y][threadIdx.x] = B[tiled_row * N + col];
+        } else {
+            Bs[threadIdx.y][threadIdx.x] = 0.0f;
+        }
+
+        __syncthreads();
+
+        #pragma unroll
+        for (int k = 0; k < BLOCK_SIZE; ++k) {
+            sum += As[threadIdx.y][k] * Bs[k][threadIdx.x];
+        }
+
+        __syncthreads();
+    }
+
+    if (row < N && col < N) {
         C[row * N + col] = sum;
     }
 }
