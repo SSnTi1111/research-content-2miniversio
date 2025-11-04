@@ -201,7 +201,6 @@ def main():
                 module.__file__, current_module_name, N
             )
             current_ncu_metrics = best_ncu_metrics 
-            
             history_entry = {
                 "round": 0, "goal": "Baseline", "status": "Success",
                 "time_ms": best_time_ms, "ptxas_metrics": best_ptxas_metrics,
@@ -216,7 +215,7 @@ def main():
             return
     
     # 确保我们有 Round 0 的指标
-    if not current_ncu_metrics:
+    if not current_ncu_metrics: # current_ncu_metrics是27个指标
         # 如果从历史加载，我们没有“上一轮”的NCU指标，所以我们使用“最佳”的指标
         current_ncu_metrics = best_ncu_metrics if best_ncu_metrics else {}
 
@@ -229,6 +228,9 @@ def main():
         
         history_summary = summarize_history(optimization_history)
         metrics_summary = format_metrics_for_llm(best_ptxas_metrics, best_ncu_metrics)
+        print("------------------LXT:metrics_summary----------------------")
+        print(metrics_summary)
+        print("------------------LXT:metrics_summary----------------------")
         
         opt_goal = "N/A"
         bottleneck_analysis = "N/A" # [!!! 新增 !!!]
@@ -247,7 +249,7 @@ def main():
                 "planner", 
                 prompts.PLANNER_SYSTEM_PROMPT,
                 f"Optimization History:\n{history_summary}\n\n"
-                f"=== Hardware Metrics for Current Best Kernel ===\n{metrics_summary}\n\n"
+                f"=== Hardware Metrics for Current Best Kernel ===\n{metrics_summary}\n\n"# metrics_summary对于planner来说不是所有的，是10个关键的
                 f"Current Best C++/CUDA Source (Time: {best_time_ms:.3f} ms):\n{best_kernel_code_cuda}"
             )
             if not planner_response or "OPTIMIZATION_GOAL:" not in planner_response:
@@ -266,10 +268,15 @@ def main():
                  
             opt_goal = planner_response.split("OPTIMIZATION_GOAL:")[1].strip()
             print(f"[Planner Agent] Goal: {opt_goal}")
-                
+            print("-----------------------LXT:planner_response----------------------")
+            print(planner_response)
+            print("-----------------------LXT:planner_response----------------------")
             # 2. Tool Agent
             print("[Tool Agent] Selecting metrics...")
             all_metric_names = list(current_ncu_metrics.keys())
+            print("-----------------------LXT:all_metric_names----------------------")
+            print(all_metric_names)# 这里是27个
+            print("-----------------------LXT:all_metric_names----------------------")
             if not all_metric_names:
                 all_metric_names = config.BASE_NCU_METRICS_LIST_EXAMPLE
                 
@@ -278,6 +285,9 @@ def main():
                 prompts.TOOL_SYSTEM_PROMPT,
                 f"All Available NCU Metric Names ({len(all_metric_names)}): {all_metric_names}\n\nOptimization Goal: {opt_goal}"
             )
+            print("-----------------------LXT:tool_response----------------------")
+            print(tool_response)
+            print("-----------------------LXT:tool_response----------------------")
             relevant_metric_names = extract_metrics(tool_response)
             if not relevant_metric_names:
                 status, details = "Failed (Tool)", "Tool Agent did not return a valid metric list."
@@ -289,9 +299,9 @@ def main():
             relevant_metrics_dict = {
                 metric: current_ncu_metrics.get(metric, 0.0) 
                 for metric in relevant_metric_names
-            }
+            }# 获取所选五个指标的值
             
-            diverse_kernels_str = get_diverse_champions(optimization_history, best_kernel_code_cuda)
+            diverse_kernels_str = get_diverse_champions(optimization_history, best_kernel_code_cuda)# 获取多样性成功案例
             
             # 3. Analysis Agent [!!! 已更新 !!!]
             print("[Analysis Agent] Formulating plan...")
@@ -304,9 +314,12 @@ def main():
                 f"Diverse Successful Kernel Examples:\n{diverse_kernels_str}\n\n"
                 f"Current Best C++/CUDA Source:\n{best_kernel_code_cuda}\n\n"
                 f"Current Best Compiler Stats (PTXAS): {best_ptxas_metrics}\n\n"
-                f"Current Best Hardware Metrics (NCU): {metrics_summary}\n\n" # <--- 传入完整最佳指标
-                f"Tool-Selected Metrics from *Previous* Run: {relevant_metrics_dict}" # <--- 传入工具选择的指标
+                f"Current Best Hardware Metrics (NCU): {metrics_summary}\n\n" # <--- 传入完整最佳指标(实际上只通过名字匹配到了两个)
+                f"Tool-Selected Metrics from *Previous* Run: {relevant_metrics_dict}" # <--- 传入工具选择的指标（这个确实是五个）
             )
+            print("-----------------------LXT:analysis_response----------------------")
+            print(analysis_response)
+            print("-----------------------LXT:analysis_response----------------------")
             if not analysis_response or "DETAILED_PLAN:" not in analysis_response:
                 status, details = "Failed (Analysis)", "Analysis Agent did not return a valid plan."
                 print(f"❌ {status} {details}")
@@ -320,6 +333,9 @@ def main():
                 prompts.CODER_SYSTEM_PROMPT,
                 f"Original C++/CUDA Source:\n{best_kernel_code_cuda}\n\nDetailed Plan:\n{detailed_plan}"
             )
+            print("-----------------------LXT:coder_response----------------------")
+            print(coder_response)
+            print("-----------------------LXT:coder_response----------------------")
             new_kernel_code = extract_code(coder_response)
             if not new_kernel_code:
                 status, details = "Failed (Coder)", "Coder Agent did not produce valid code."

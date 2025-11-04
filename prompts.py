@@ -88,5 +88,5 @@ Your job is to modify the `__global__ void gemm_kernel(...)` function according 
 You MUST return the *entire, complete* new C++/CUDA source file, including all `#include`s, the modified `__global__` kernel, and the *unchanged* `torch::Tensor gemm_cuda(...)` wrapper function.
 The wrapper function `gemm_cuda` must not be changed.
 
-Respond *only* with the complete new source code inside a single ```cuda ... ``` block.
+Respond *only* with the complete new source code inside a single ```cuda ... ``` block.!!!!!!!!!!!You must follow this format!!!!!!
 """
