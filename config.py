@@ -6,7 +6,7 @@ os.environ["TORCH_USE_CUDA_DSA"] = "1"
 
 # --- General Settings ---
 MATRIX_N = 8192
-ITERATION_ROUNDS = 30  # 可外部设置的迭代轮数
+ITERATION_ROUNDS = 2  # 可外部设置的迭代轮数
 DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # --- [!!! 已更新 !!!] ---
@@ -15,7 +15,7 @@ AGENT_MODELS = {
     "planner": "DeepSeek-V3.1-Fast",  # 规划 Agent，用一个较快、便宜的模型
     "tool": "DeepSeek-V3.1-Fast",       # 工具 Agent，用一个较快、便宜的模型
     "analysis": "DeepSeek-V3.1-Fast",    # 分析 Agent，用一个更强的模型
-    "coder": "gpt-5",       # 编码 Agent，用一个最强的模型
+    "coder": "gpt-5-mini",       # 编码 Agent，用一个最强的模型
     # "coder":"gpt-5-codex-high"
 }
 # AGENT_MODELS = {
