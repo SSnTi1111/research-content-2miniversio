@@ -96,33 +96,56 @@ def summarize_history(history: list) -> str:
             summary += f"    Error Details: {details}\n"
     return summary
 
+# def format_metrics_for_llm(ptxas_metrics: dict, ncu_metrics: dict) -> str:
+#     """(此函数保持不变)"""
+#     if not ncu_metrics:
+#         return "Hardware metrics are not yet available."
+        
+#     key_ncu_metrics = {
+#         "dram__bytes_read.sum": ncu_metrics.get("dram__bytes_read.sum"),
+#         "dram__bytes_write.sum": ncu_metrics.get("dram__bytes_write.sum"),
+#         "lts__t_bytes_read.sum": ncu_metrics.get("lts__t_bytes_read.sum"), 
+#         "l1tex__t_bytes_read.sum": ncu_metrics.get("l1tex__t_bytes_read.sum"), 
+#         "DRAMThroughput": ncu_metrics.get("DRAMThroughput"),
+#         "L2CacheThroughput": ncu_metrics.get("L2CacheThroughput"),
+#         "achieved_occupancy.avg": ncu_metrics.get("achieved_occupancy.avg"),
+#         "sm__cycles_elapsed.avg": ncu_metrics.get("sm__cycles_elapsed.avg"),
+#         "sm__inst_executed.avg": ncu_metrics.get("sm__inst_executed.avg"),
+#         "warp_execution_efficiency.pct": ncu_metrics.get("warp_execution_efficiency.pct"),
+#     }
+    
+#     key_ncu_metrics = {k: v for k, v in key_ncu_metrics.items() if v is not None}
+
+#     summary = "=== PTXAS Compiler Metrics ===\n"
+#     summary += json.dumps(ptxas_metrics, indent=2)
+#     summary += "\n\n=== NCU Hardware Metrics (Key) ===\n"
+#     summary += json.dumps(key_ncu_metrics, indent=2)
+    
+#     return summary
 def format_metrics_for_llm(ptxas_metrics: dict, ncu_metrics: dict) -> str:
-    """(此函数保持不变)"""
+    """
+    [!!! 已更新 !!!] 解决了 TODO 问题 7。
+    此函数现在动态地将 *所有* 捕获的 NCU 指标传递给 Planner Agent，
+    而不是硬编码一个固定的 "Key" 列表。
+    """
     if not ncu_metrics:
         return "Hardware metrics are not yet available."
         
-    key_ncu_metrics = {
-        "dram__bytes_read.sum": ncu_metrics.get("dram__bytes_read.sum"),
-        "dram__bytes_write.sum": ncu_metrics.get("dram__bytes_write.sum"),
-        "lts__t_bytes_read.sum": ncu_metrics.get("lts__t_bytes_read.sum"), 
-        "l1tex__t_bytes_read.sum": ncu_metrics.get("l1tex__t_bytes_read.sum"), 
-        "DRAMThroughput": ncu_metrics.get("DRAMThroughput"),
-        "L2CacheThroughput": ncu_metrics.get("L2CacheThroughput"),
-        "achieved_occupancy.avg": ncu_metrics.get("achieved_occupancy.avg"),
-        "sm__cycles_elapsed.avg": ncu_metrics.get("sm__cycles_elapsed.avg"),
-        "sm__inst_executed.avg": ncu_metrics.get("sm__inst_executed.avg"),
-        "warp_execution_efficiency.pct": ncu_metrics.get("warp_execution_efficiency.pct"),
-    }
-    
-    key_ncu_metrics = {k: v for k, v in key_ncu_metrics.items() if v is not None}
+    # [!!! 移除 !!!] 不再创建 "key_ncu_metrics" 过滤列表。
+    # key_ncu_metrics = {
+    #     "dram__bytes_read.sum": ncu_metrics.get("dram__bytes_read.sum"),
+    #     ...
+    # }
+    # key_ncu_metrics = {k: v for k, v in key_ncu_metrics.items() if v is not None}
 
     summary = "=== PTXAS Compiler Metrics ===\n"
     summary += json.dumps(ptxas_metrics, indent=2)
-    summary += "\n\n=== NCU Hardware Metrics (Key) ===\n"
-    summary += json.dumps(key_ncu_metrics, indent=2)
+    
+    # [!!! 更改 !!!] 直接使用完整的 ncu_metrics 字典，并将标题更改为 "Full Set"
+    summary += "\n\n=== NCU Hardware Metrics (Full Set) ===\n" 
+    summary += json.dumps(ncu_metrics, indent=2)
     
     return summary
-
 
 def main():
     print(f"Starting GEMM optimization for {config.MATRIX_N}x{config.MATRIX_N} matrix.")
