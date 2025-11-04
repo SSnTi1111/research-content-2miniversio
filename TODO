@@ -8,7 +8,7 @@
 5. 历史优化信息中没有每轮的所有27个NCU数据信息以及本轮所选择的用来做优化的NCU数据信息。
 6. main.py中的summarize_history函数获取的是所有轮次的信息（而且我想要的NCU信息也没有）轮数是不是太多了，换成上面的树结构是不是会好一点（其中还要包括本轮关注的NCU的信息以及
 为什么这样优化以及做了什么优化的简要概述）
-7. main.py中的format_metrics_for_llm函数为什么不是解析出来了27个指标啊？？？仅仅有10个，这个地方能不能动态检查NCU一共获得了哪些
+(已解决)7. main.py中的format_metrics_for_llm函数为什么不是解析出来了27个指标啊？？？仅仅有10个，这个地方能不能动态检查NCU一共获得了哪些
 指标，把这些指标都加进去啊？因为预设的10个指标名称实际上有的在NCU解析中不存在，能不能动态解析啊，而不是把名称提前写死。具体的27个
 指标的名称应该是['DRAMFrequency', 'SMFrequency', 'ElapsedCycles', 'MemoryThroughput', 'DRAMThroughput', 'Duration', 'L1TEXCacheThroughput', 'L2CacheThroughput', 'SMActiveCycles', 'ComputeSMThroughput', 'BlockSize', 'GridSize', 'RegistersPerThread', 'SharedMemoryConfigurationSize', 'DriverSharedMemoryPerBlock', 'DynamicSharedMemoryPerBlock', 'StaticSharedMemoryPerBlock', 'Threads', 'WavesPerSM', 'BlockLimitSM', 'BlockLimitRegisters', 'BlockLimitSharedMem', 'BlockLimitWarps', 'TheoreticalActiveWarpsperSM', 'TheoreticalOccupancy', 'AchievedOccupancy', 'AchievedActiveWarpsPerSM']
 目前只能匹配到两个："DRAMThroughput": 23.36,
