@@ -34,103 +34,118 @@ def extract_metrics(response_text):
         print(f"[Tool Agent] Error parsing metrics list: {e}\nResponse was: {response_text}")
         return None
 
-# [!!! 已更新 !!!] 解决了 TODO 问题 5（根据你的最新要求）
-def get_diverse_champions(history: list, current_best_code: str, num_kernels=2) -> str:
+# [!!! 已删除 !!!]
+# def get_diverse_champions(history: list, current_best_code: str, num_kernels=2) -> str:
+#     ... (此功能被 summarize_tree_context 替代)
+
+# [!!! 已删除 !!!]
+# def summarize_history(history: list) -> str:
+#     ... (此功能被 summarize_tree_context 替代)
+
+
+# [!!! 已更新 !!!] 解决了 TODO 问题 5 和 6（根据您的最新要求）
+def format_selected_ncu_metrics(entry):
     """
-    从历史中提取最多 N 个不同的、成功的内核代码。
-    现在在注释中包含该轮 *Tool Agent 选择* 的 NCU 指标及其值。
+    一个辅助函数，用于格式化所选的 NCU 指标以包含在摘要中。
     """
+    selected_metrics = entry.get('selected_ncu_metrics')
+    all_ncu = entry.get('all_ncu_metrics')
     
-    # 1. 查找所有成功的条目 (不包括 Round 0)
-    success_entries = [
-        h for h in history 
-        if "Success" in h['status'] and h['round'] > 0 and h.get('code')
-    ]
+    if isinstance(selected_metrics, list) and isinstance(all_ncu, dict) and selected_metrics:
+        metric_summary = "    Selected NCU Metrics (for Goal):\n"
+        for metric_name in selected_metrics:
+            value = all_ncu.get(metric_name, 'N/A')
+            metric_summary += f"      - {metric_name}: {value}\n"
+        return metric_summary
+    return ""
+
+# [!!! 已更新 !!!] 解决了 TODO 问题 6
+def summarize_tree_context(history: list, best_node: dict, max_ancestors=5, max_children=10) -> str:
+    """
+    基于当前的最佳节点，生成用于提示的"树上下文"。
+    包括"近期成功路径"（祖先）和"近期失败尝试"（子节点）。
     
-    # 2. 按性能排序
-    success_entries.sort(key=lambda x: x['time_ms'])
+    [!!! 已更新 !!!]
+    - 成功路径现在包含 'Selected NCU Metrics'。
+    - 失败尝试现在包含 'Selected NCU Metrics'。
+    - 失败尝试在 'Failed (Compilation)' 或 'Failed (Correctness)' 时
+      会 *智能地包含* 'Failed Code:'。
+    """
+    if not best_node:
+        return "No optimization history (starting from baseline)."
+
+    # 1. 创建一个 map 以便快速查找
+    history_map = {entry['round']: entry for entry in history}
     
-    diverse_str = "--- Diverse Successful Kernel Examples (Best first) ---\n"
-    count = 0
+    # 2. 生成 "Recent Success Path" (祖先)
+    success_path = []
+    current_node = best_node
+    parent_round = current_node.get('parent_round', -1)
     
-    # 3. 提取代码 (确保它与当前最佳代码 *不同*)
-    for entry in success_entries:
-        if entry['code'] == current_best_code:
-            continue # 跳过与当前最佳完全相同的代码
+    while parent_round != -1 and len(success_path) < max_ancestors:
+        if parent_round not in history_map:
+            break # 找到了孤儿节点，停止
+        current_node = history_map[parent_round]
+        
+        entry_summary = (
+            f"  (Round {current_node['round']}, Time: {current_node.get('time_ms', 0):.3f} ms)\n"
+            f"    Goal: {current_node['goal']}\n"
+        )
+        # [!!! 新增 !!!] 添加祖先节点的选定 NCU 指标
+        entry_summary += format_selected_ncu_metrics(current_node)
+        
+        success_path.append(entry_summary)
+        parent_round = current_node.get('parent_round', -1)
+        
+    success_path.reverse() # 从 Root -> Best
+    
+    summary_str = "--- Recent Success Path (Root -> Current Best) ---\n"
+    if not success_path:
+        summary_str += "  (Current Best is Baseline)\n"
+    else:
+        summary_str += "\n".join(success_path)
+        summary_str += f"\n  (Round {best_node['round']}, Current Best, Time: {best_node.get('time_ms', 0):.3f} ms)\n"
+        # [!!! 新增 !!!] 添加最佳节点*本身*的选定 NCU 指标
+        summary_str += format_selected_ncu_metrics(best_node)
+
+    
+    # 3. 生成 "Recent Failed Attempts" (子节点)
+    failed_children = []
+    best_round_id = best_node['round']
+    
+    # 反向迭代历史记录以首先获取最近的失败
+    for entry in reversed(history):
+        if entry.get('parent_round') == best_round_id and "Success" not in entry['status']:
+            entry_summary = (
+                f"  (Round {entry['round']})\n"
+                f"    Goal: {entry['goal']}\n"
+                f"    Status: {entry['status']}\n"
+                f"    Details: {entry['details']}\n"
+            )
             
-        diverse_str += f"\n\n--- Example {count+1} (From Round {entry['round']}) ---\n"
-        diverse_str += f"// Goal: {entry['goal']}\n"
-        diverse_str += f"// Performance: {entry['time_ms']:.3f} ms\n"
-        
-        # 添加 PTXAS 指标
-        ptxas = entry.get('ptxas_metrics', {})
-        diverse_str += f"// Registers: {ptxas.get('registers_used', 'N/A')}\n"
-        diverse_str += f"// Shared Mem: {ptxas.get('shared_mem_bytes', 'N/A')}\n"
-        
-        # [!!! 新增 !!!] 仅添加该轮选择的 NCU 指标
-        selected_metrics = entry.get('selected_ncu_metrics')
-        all_ncu = entry.get('all_ncu_metrics')
-        
-        if isinstance(selected_metrics, list) and isinstance(all_ncu, dict) and selected_metrics:
-            diverse_str += f"// Selected NCU Metrics (for Goal):\n"
-            for metric_name in selected_metrics:
-                value = all_ncu.get(metric_name, 'N/A')
-                diverse_str += f"//  - {metric_name}: {value}\n"
-        # [!!! 结束新增 !!!]
-
-        diverse_str += entry['code']
-        count += 1
-
-        if count >= num_kernels:
-            break
+            # [!!! 新增 !!!] 添加失败尝试的选定 NCU 指标
+            entry_summary += format_selected_ncu_metrics(entry)
             
-    if count == 0:
-        return "No other diverse successful examples available in history."
-    return diverse_str
-
-# [!!! 已更新 !!!] 解决了 TODO 问题 5（根据你的最新要求）
-def summarize_history(history: list) -> str:
-    """
-    (此函数已更新)
-    现在包含 PTXAS 指标以及 *Tool Agent 当轮选择* 的 NCU 指标及其值。
-    """
-    if not history:
-        return "No previous attempts."
+            # [!!! 新增 !!!] 智能代码包含
+            if "Compilation" in entry['status'] or "Correctness" in entry['status']:
+                failed_code = entry.get('code', '// Code not saved.')
+                if failed_code:
+                     entry_summary += f"    Failed Code:\n{failed_code}\n"
+            
+            failed_children.append(entry_summary)
+            if len(failed_children) >= max_children:
+                break
     
-    summary = "Previous Optimization Attempts:\n"
-    for i, entry in enumerate(history):
-        summary += f"  Round {entry['round']}:\n"
-        summary += f"    Goal: {entry['goal']}\n"
-        summary += f"    Status: {entry['status']}\n"
-        
-        perf_str = "N/A"
-        if entry['time_ms'] is not None:
-            perf_str = f"{entry['time_ms']:.3f} ms"
-        summary += f"    Performance: {perf_str}\n"
+    failed_children.reverse() # 重新按时间顺序
+    
+    summary_str += "\n\n--- Recent Failed Attempts (Based on this Best Kernel) ---\n"
+    if not failed_children:
+        summary_str += "  (No failed attempts recorded for this kernel yet.)\n"
+    else:
+        summary_str += "\n".join(failed_children)
 
-        # 添加 PTXAS 指标
-        if entry.get('ptxas_metrics'):
-            summary += f"    Registers: {entry['ptxas_metrics'].get('registers_used', 'N/A')}\n"
-            summary += f"    Shared Mem: {entry['ptxas_metrics'].get('shared_mem_bytes', 'N/A')} bytes\n"
+    return summary_str
 
-        # [!!! 新增 !!!] 仅添加该轮选择的 NCU 指标
-        selected_metrics = entry.get('selected_ncu_metrics')
-        all_ncu = entry.get('all_ncu_metrics')
-        
-        # 检查 'selected_metrics' 是否是列表，'all_ncu' 是否是字典，并且 'selected_metrics' 不为空
-        if isinstance(selected_metrics, list) and isinstance(all_ncu, dict) and selected_metrics:
-            summary += f"    Selected NCU Metrics (for Goal):\n"
-            for metric_name in selected_metrics:
-                value = all_ncu.get(metric_name, 'N/A')
-                summary += f"      - {metric_name}: {value}\n"
-        # [!!! 结束新增 !!!]
-
-        elif "Error" in entry['status'] or "Failed" in entry['status']:
-            details = entry.get('details', 'No details')
-            if len(details) > 200:
-                details = details[:200] + "..."
-            summary += f"    Error Details: {details}\n"
-    return summary
 
 # [!!! 已更新 !!!] 解决了 TODO 问题 7 (来自上一个请求)
 def format_metrics_for_llm(ptxas_metrics: dict, ncu_metrics: dict) -> str:
@@ -174,34 +189,34 @@ def main():
     C_ref_torch = torch.matmul(A_torch, B_torch) 
     
     cpp_source = kernels.CPP_SOURCE 
-    best_kernel_code_cuda = kernels.NAIVE_CUDA_SOURCE
-    best_time_ms = float('inf')
-    best_ptxas_metrics = {}
-    best_ncu_metrics = {}
-    current_ncu_metrics = {}
+    
+    # [!!! 已更新 !!!] 切换到基于节点(Node)的跟踪
+    best_node = None
+    current_ncu_metrics = {} # 保持不变：用于 Tool Agent
     
     optimization_history = []
-    # (加载历史记录的代码保持不变)
+    
     if os.path.exists(config.HISTORY_FILE):
         print(f"Loading existing history from {config.HISTORY_FILE}")
         with open(config.HISTORY_FILE, 'r') as f:
             optimization_history = json.load(f)
         
         found_best = False
-        for entry in sorted(optimization_history, key=lambda x: x.get('time_ms', float('inf'))):
-             # [!!! 已更新 !!!] 修复了 'code' 键的查找
+        # [!!! 已更新 !!!] 查找性能最佳的节点
+        best_time_so_far = float('inf')
+        for entry in optimization_history:
              if ("Success" in entry['status']) and entry.get('code'):
-                best_time_ms = entry['time_ms']
-                best_ptxas_metrics = entry['ptxas_metrics']
-                best_kernel_code_cuda = entry['code'] # <--- 从历史中恢复代码
-                
-                # [!!! 已更新 !!!] 从历史中恢复完整的 NCU 指标
-                best_ncu_metrics = entry.get('all_ncu_metrics', {}) 
-                
-                print(f"Restored best kernel from history (Round {entry['round']}, Time: {best_time_ms:.3f} ms)")
-                found_best = True
-                break
-        if not found_best:
+                entry_time = entry.get('time_ms', float('inf'))
+                if entry_time < best_time_so_far:
+                    best_time_so_far = entry_time
+                    best_node = entry # <--- 找到最佳节点
+                    found_best = True
+        
+        if found_best:
+            print(f"Restored best kernel from history (Round {best_node['round']}, Time: {best_node['time_ms']:.3f} ms)")
+            # [!!! 已更新 !!!] 恢复上一轮的 NCU 指标以供 Tool Agent 使用
+            current_ncu_metrics = best_node.get('all_ncu_metrics', {})
+        else:
              print("No successful kernel found in history, starting from baseline.")
              optimization_history = [] 
              
@@ -209,15 +224,16 @@ def main():
     if not optimization_history: 
         print("\n--- Round 0: Compiling and analyzing baseline (naive) kernel ---")
         current_module_name = "gemm_evolved_0"
+        baseline_code = kernels.NAIVE_CUDA_SOURCE
         
         try:
             module, stdout_log, stderr_log = cuda_utils.load_gemm_module(
                 cpp_source, 
-                best_kernel_code_cuda, 
+                baseline_code, 
                 module_name=current_module_name
             )
             print("Baseline kernel compiled successfully.")
-            best_ptxas_metrics = cuda_utils.parse_ptxas_info(stdout_log + stderr_log)
+            ptxas_metrics = cuda_utils.parse_ptxas_info(stdout_log + stderr_log)
             
             is_correct = cuda_utils.check_correctness(A_torch, B_torch, C_ref_torch)
             if not is_correct:
@@ -225,35 +241,43 @@ def main():
                 return
                 
             print("Baseline kernel is correct. Benchmarking...")
-            best_time_ms = cuda_utils.benchmark_kernel(A_torch, B_torch)
+            time_ms = cuda_utils.benchmark_kernel(A_torch, B_torch)
             
             print("Analyzing baseline kernel with NCU (this may take a while)...")
-            best_ncu_metrics = cuda_utils.get_real_ncu_metrics(
+            ncu_metrics = cuda_utils.get_real_ncu_metrics(
                 module.__file__, current_module_name, N
             )
-            current_ncu_metrics = best_ncu_metrics 
+            current_ncu_metrics = ncu_metrics # <--- 设置 "上一轮" 指标
             
-            # [!!! 已更新 !!!] 解决了 TODO 问题 5
+            # [!!! 已更新 !!!] 解决了 TODO 问题 5 和 6
             history_entry = {
-                "round": 0, "goal": "Baseline", "status": "Success",
-                "time_ms": best_time_ms, 
-                "ptxas_metrics": best_ptxas_metrics,
-                "all_ncu_metrics": best_ncu_metrics,      # <--- 保存完整的 NCU 指标
-                "selected_ncu_metrics": [],                 # <--- 基线没有选择指标
+                "round": 0, 
+                "parent_round": -1, # <--- 树的根节点
+                "goal": "Baseline", 
+                "status": "Success",
+                "time_ms": time_ms, 
+                "ptxas_metrics": ptxas_metrics,
+                "all_ncu_metrics": ncu_metrics,
+                "selected_ncu_metrics": [], # <--- 基线没有选择指标
                 "details": "Initial baseline measurement",
-                "code": best_kernel_code_cuda # 保存基线代码
+                "code": baseline_code 
             }
             optimization_history.append(history_entry)
-            print(f"Baseline performance: {best_time_ms:.3f} ms")
+            best_node = history_entry # <--- 基线是当前的最佳节点
+            print(f"Baseline performance: {time_ms:.3f} ms")
 
         except Exception as e:
             print(f"❌ Baseline kernel failed compilation or runtime. Exiting. \n{e}")
             return
     
-    # 确保我们有 Round 0 的指标
-    if not current_ncu_metrics: # current_ncu_metrics是所有的指标
-        # 如果从历史加载，我们没有“上一轮”的NCU指标，所以我们使用“最佳”的指标
-        current_ncu_metrics = best_ncu_metrics if best_ncu_metrics else {}
+    # 确保我们有 "best_node"
+    if not best_node:
+        print("❌ 错误：未能初始化 best_node。历史记录可能已损坏。")
+        return
+        
+    # 确保我们有 "current_ncu_metrics"
+    if not current_ncu_metrics: 
+        current_ncu_metrics = best_node.get('all_ncu_metrics', {})
 
 
     # 3. 开始优化循环
@@ -262,11 +286,18 @@ def main():
         
         print(f"\n--- Round {i}/{config.ITERATION_ROUNDS} ---")
         
-        # [!!! 已更新 !!!] summarize_history 现在会显示选定的 NCU 指标
-        history_summary = summarize_history(optimization_history)
+        # [!!! 已更新 !!!] 
+        # 1. 确定此轮的父节点
+        parent_node = best_node
+        parent_round_id = parent_node['round']
+        parent_kernel_code = parent_node['code']
+        parent_time_ms = parent_node['time_ms']
+
+        # 2. 生成新的树上下文（现在包含指标和智能代码）
+        history_summary = summarize_tree_context(optimization_history, parent_node)
         
-        # [!!! 已更新 !!!] format_metrics_for_llm 现在会显示所有 NCU 指标
-        metrics_summary = format_metrics_for_llm(best_ptxas_metrics, best_ncu_metrics)
+        # 3. 格式化父节点的指标
+        metrics_summary = format_metrics_for_llm(parent_node['ptxas_metrics'], parent_node['all_ncu_metrics'])
         
         print("------------------LXT:metrics_summary (to Planner)----------------------")
         print(metrics_summary)
@@ -281,8 +312,6 @@ def main():
         new_time_ms = float('inf')
         new_ptxas_metrics = {}
         new_ncu_metrics = {}
-        
-        # [!!! 已更新 !!!] 在 try 块顶部初始化，以便 finally 块可以使用
         relevant_metric_names = [] 
         
         try:
@@ -291,9 +320,10 @@ def main():
             planner_response = agents.call_llm(
                 "planner", 
                 prompts.PLANNER_SYSTEM_PROMPT,
-                f"Optimization History:\n{history_summary}\n\n"
-                f"=== Hardware Metrics for Current Best Kernel ===\n{metrics_summary}\n\n"
-                f"Current Best C++/CUDA Source (Time: {best_time_ms:.3f} ms):\n{best_kernel_code_cuda}"
+                # [!!! 已更新 !!!] 使用新的树上下文
+                f"Optimization Tree Context:\n{history_summary}\n\n"
+                f"=== Hardware Metrics for Current Best Kernel (Round {parent_round_id}) ===\n{metrics_summary}\n\n"
+                f"Current Best C++/CUDA Source (Time: {parent_time_ms:.3f} ms):\n{parent_kernel_code}"
             )
             if not planner_response or "OPTIMIZATION_GOAL:" not in planner_response:
                 status, details = "Failed (Planner)", "Planner did not return a valid goal."
@@ -318,7 +348,7 @@ def main():
             print("[Tool Agent] Selecting metrics...")
             all_metric_names = list(current_ncu_metrics.keys())
             print("-----------------------LXT:all_metric_names----------------------")
-            print(all_metric_names)# 这里是所有的指标
+            print(all_metric_names)
             print("-----------------------LXT:all_metric_names----------------------")
             if not all_metric_names:
                 all_metric_names = config.BASE_NCU_METRICS_LIST_EXAMPLE
@@ -332,7 +362,6 @@ def main():
             print(tool_response)
             print("-----------------------LXT:tool_response----------------------")
             
-            # [!!! 已更新 !!!] 捕获 relevant_metric_names 以便保存到历史
             relevant_metric_names = extract_metrics(tool_response)
             
             if not relevant_metric_names:
@@ -341,26 +370,23 @@ def main():
                 continue 
             print(f"[Tool Agent] Selected {len(relevant_metric_names)} metrics: {relevant_metric_names}")
             
+            # [!!! 已更新 !!!] 指标来自父节点
             relevant_metrics_dict = {
-                metric: current_ncu_metrics.get(metric, 0.0) 
+                metric: parent_node.get('all_ncu_metrics', {}).get(metric, 0.0) 
                 for metric in relevant_metric_names
-            }# 获取所选五个指标的值
-            
-            # [!!! 已更新 !!!] get_diverse_champions 现在会显示选定的 NCU 指标
-            diverse_kernels_str = get_diverse_champions(optimization_history, best_kernel_code_cuda)# 获取多样性成功案例
+            }
             
             # 3. Analysis Agent [!!! 已更新 !!!]
             print("[Analysis Agent] Formulating plan...")
             analysis_response = agents.call_llm(
                 "analysis", 
                 prompts.ANALYSIS_SYSTEM_PROMPT,
-                f"Planner's Bottleneck Analysis: {bottleneck_analysis}\n\n" # <--- 传入瓶颈
+                f"Planner's Bottleneck Analysis: {bottleneck_analysis}\n\n" 
                 f"Optimization Goal: {opt_goal}\n\n"
-                f"Optimization History:\n{history_summary}\n\n" # <--- history_summary 现在包含选定的 NCU 指标
-                f"Diverse Successful Kernel Examples:\n{diverse_kernels_str}\n\n" # <--- diverse_kernels_str 现在包含选定的 NCU 指标
-                f"Current Best C++/CUDA Source:\n{best_kernel_code_cuda}\n\n"
-                f"Current Best Hardware Metrics (Full Set): {metrics_summary}\n\n" # <--- 传入完整最佳指标
-                f"Tool-Selected Metrics from *Previous* Run (Values): {relevant_metrics_dict}" # <--- 传入工具选择的指标（这个确实是五个）
+                f"Optimization Tree Context:\n{history_summary}\n\n" # <--- 传入新的树上下文
+                f"Current Best C++/CUDA Source:\n{parent_kernel_code}\n\n" # <--- 明确传入父节点代码
+                f"Current Best Hardware Metrics (Full Set): {metrics_summary}\n\n" 
+                f"Tool-Selected Metrics from *Previous* Run (Values): {relevant_metrics_dict}" 
             )
             print("-----------------------LXT:analysis_response----------------------")
             print(analysis_response)
@@ -376,7 +402,7 @@ def main():
             coder_response = agents.call_llm(
                 "coder", 
                 prompts.CODER_SYSTEM_PROMPT,
-                f"Original C++/CUDA Source:\n{best_kernel_code_cuda}\n\nDetailed Plan:\n{detailed_plan}"
+                f"Original C++/CUDA Source:\n{parent_kernel_code}\n\nDetailed Plan:\n{detailed_plan}" # <--- 基于父节点代码修改
             )
             print("-----------------------LXT:coder_response----------------------")
             print(coder_response)
@@ -417,28 +443,22 @@ def main():
             new_time_ms = cuda_utils.benchmark_kernel(A_torch, B_torch)
             print("Analyzing new kernel with NCU...")
             
-            # [!!! 已更新 !!!] 捕获完整的 NCU 指标
             new_ncu_metrics = cuda_utils.get_real_ncu_metrics(
                 module.__file__, 
                 current_module_name, 
                 N
             )
             
-            if new_time_ms < best_time_ms:
+            # [!!! 已更新 !!!] 与父节点(best_node)比较
+            if new_time_ms < parent_time_ms: 
                 status = "Success (New Best)"
-                details = f"Performance improved from {best_time_ms:.3f} ms to {new_time_ms:.3f} ms."
+                details = f"Performance improved from {parent_time_ms:.3f} ms to {new_time_ms:.3f} ms."
                 print(f"✅ {status} {details}")
-                
-                best_time_ms = new_time_ms
-                best_kernel_code_cuda = new_kernel_code
-                best_ptxas_metrics = new_ptxas_metrics
-                best_ncu_metrics = new_ncu_metrics
             else:
                 status = "Failed (Performance Regression)"
-                details = f"New time {new_time_ms:.3f} ms is not better than best time {best_time_ms:.3f} ms."
+                details = f"New time {new_time_ms:.3f} ms is not better than parent time {parent_time_ms:.3f} ms."
                 print(f"❌ {status} {details}")
             
-            # [!!! 已更新 !!!] 存储当轮的指标，供下一轮的 Tool Agent 和 Analysis Agent 使用
             current_ncu_metrics = new_ncu_metrics
 
         except Exception as e:
@@ -446,30 +466,43 @@ def main():
             print(f"❌ {status} {details}")
             
         finally:
-            # [!!! 已更新 !!!] 解决了 TODO 问题 5
-            # 保存所有 NCU 指标和选定的指标名称
+            # [!!! 已更新 !!!] 解决了 TODO 问题 5 和 6
+            # 创建新的历史节点
             history_entry = {
                 "round": i,
+                "parent_round": parent_round_id, # <--- 设置父节点
                 "goal": opt_goal,
                 "status": status,
                 "time_ms": new_time_ms if new_time_ms != float('inf') else None,
                 "ptxas_metrics": new_ptxas_metrics,
-                "all_ncu_metrics": new_ncu_metrics,         # <--- 保存完整的 NCU 指标
-                "selected_ncu_metrics": relevant_metric_names, # <--- 保存选定的指标名称
+                "all_ncu_metrics": new_ncu_metrics,
+                "selected_ncu_metrics": relevant_metric_names,
                 "details": details,
                 "code": new_kernel_code if new_kernel_code else "" 
             }
             optimization_history.append(history_entry)
 
+            # [!!! 已更新 !!!] 如果成功，更新 best_node
+            # 我们需要比较 new_time_ms 和 best_node['time_ms'] (全局最佳)
+            if status == "Success (New Best)" and new_time_ms < best_node['time_ms']:
+                print(f"👑 New Global Best! (Round {i}, Time: {new_time_ms:.3f} ms)")
+                best_node = history_entry
+            # 如果失败，或者只是比父节点好但不是全局最好，
+            # best_node 保持不变，下一轮将从*全局最佳*再次尝试
+            # (注意：这里的逻辑是 "始终从全局最佳节点分支")
+            # (如果想从 "刚刚成功的父节点" 分支，应使用:
+            #  if status == "Success (New Best)": best_node = history_entry)
+            # 我们将坚持 "始终从全局最佳分支" 的策略。
+
     # 4. 最终报告
     print("\n--- Optimization Finished ---")
     if optimization_history:
         print(f"Baseline performance (Round 0): {optimization_history[0].get('time_ms', 0.0):.3f} ms")
-    print(f"Best kernel performance: {best_time_ms:.3f} ms")
+    print(f"Best kernel performance (Round {best_node['round']}): {best_node['time_ms']:.3f} ms")
     
     final_kernel_path = "best_gemm_kernel.cu"
     with open(final_kernel_path, "w") as f:
-        f.write(best_kernel_code_cuda)
+        f.write(best_node['code']) # <--- 写入最佳节点的代码
     print(f"Best kernel C++/CUDA source saved to {final_kernel_path}")
     
     with open(config.HISTORY_FILE, 'w') as f:
@@ -480,10 +513,10 @@ def main():
     print("\n--- Running Final Benchmark ---")
     pytorch_time_ms = cuda_utils.get_pytorch_performance(A_torch, B_torch)
     print(f"PyTorch (torch.matmul) performance: {pytorch_time_ms:.3f} ms")
-    print(f"Our best LLM-optimized kernel: {best_time_ms:.3f} ms")
+    print(f"Our best LLM-optimized kernel: {best_node['time_ms']:.3f} ms")
     
-    speedup = pytorch_time_ms / best_time_ms
-    if best_time_ms < pytorch_time_ms:
+    speedup = pytorch_time_ms / best_node['time_ms']
+    if best_node['time_ms'] < pytorch_time_ms:
         print(f"SUCCESS: Optimized kernel is {speedup:.2f}x faster than PyTorch!")
     else:
         print(f"Result: PyTorch is {1/speedup:.2f}x faster.")
